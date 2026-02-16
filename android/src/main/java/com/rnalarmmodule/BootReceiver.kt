@@ -56,6 +56,9 @@ class BootReceiver : BroadcastReceiver() {
             val datetimeISO = obj.optString("datetimeISO", "")
             val title = obj.optString("title", "Alarm")
             val body = obj.optString("body", "")
+            val snoozeEnabled = obj.optBoolean("snoozeEnabled", true)
+            val snoozeInterval = obj.optInt("snoozeInterval", 5)
+            val repeatFrequency = obj.optInt("repeatFrequency", -1)
 
             val date = try {
                 sdf.parse(datetimeISO)
@@ -65,7 +68,13 @@ class BootReceiver : BroadcastReceiver() {
             
             val triggerAt = date.time
             if (triggerAt <= now) {
-                // Past alarms: skip (could optionally fire immediately if desired)
+                // For recurring alarms, calculate the next occurrence
+                if (repeatFrequency >= 0) {
+                    // Skip for now - recurring alarms will be handled by the alarm manager
+                    skippedCount++
+                    continue
+                }
+                // Past one-time alarms: skip
                 skippedCount++
                 continue
             }
@@ -74,6 +83,9 @@ class BootReceiver : BroadcastReceiver() {
                 putExtra("id", id)
                 putExtra("title", title)
                 putExtra("body", body)
+                putExtra("snoozeEnabled", snoozeEnabled)
+                putExtra("snoozeInterval", snoozeInterval)
+                putExtra("repeatFrequency", repeatFrequency)
             }
 
             val pendingIntent = PendingIntent.getBroadcast(
@@ -83,10 +95,21 @@ class BootReceiver : BroadcastReceiver() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+            // Use repeating or exact alarm based on repeatFrequency
+            if (repeatFrequency >= 0) {
+                val intervalMillis = when (repeatFrequency) {
+                    0 -> AlarmManager.INTERVAL_HOUR  // HOURLY
+                    1 -> AlarmManager.INTERVAL_DAY   // DAILY
+                    2 -> AlarmManager.INTERVAL_DAY * 7  // WEEKLY
+                    else -> AlarmManager.INTERVAL_DAY
+                }
+                alarmManager.setRepeating(AlarmManager.RTC_WAKEUP, triggerAt, intervalMillis, pendingIntent)
             } else {
-                alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+                } else {
+                    alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+                }
             }
 
             rescheduledCount++

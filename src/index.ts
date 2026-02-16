@@ -6,6 +6,16 @@ import {
 } from 'react-native';
 
 /**
+ * Frequency for recurring alarms
+ */
+export enum RepeatFrequency {
+  NONE = -1,
+  HOURLY = 0,
+  DAILY = 1,
+  WEEKLY = 2
+}
+
+/**
  * Parameters for scheduling an alarm
  */
 export type AlarmParams = {
@@ -21,6 +31,8 @@ export type AlarmParams = {
   snoozeEnabled?: boolean;
   /** Interval in minutes for snoozing */
   snoozeInterval?: number;
+  /** Repeat frequency for recurring alarms (default: RepeatFrequency.NONE) */
+  repeatFrequency?: RepeatFrequency;
 };
 
 /**
