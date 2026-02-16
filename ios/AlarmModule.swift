@@ -107,7 +107,7 @@ class AlarmModule: RCTEventEmitter {
                 components = calendar.dateComponents([.hour, .minute, .second], from: date)
             case 2: // WEEKLY
                 components = calendar.dateComponents([.weekday, .hour, .minute, .second], from: date)
-            default:
+            default: // Invalid values default to DAILY behavior
                 components = calendar.dateComponents([.hour, .minute, .second], from: date)
             }
             trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)

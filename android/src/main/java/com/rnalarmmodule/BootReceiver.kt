@@ -73,7 +73,8 @@ class BootReceiver : BroadcastReceiver() {
             if (triggerAt <= now && repeatFrequency >= 0) {
                 val intervalMillis = AlarmModule.getRepeatIntervalMillis(repeatFrequency)
                 // Calculate how many intervals have passed and get the next future occurrence
-                val intervalsPassed = ((now - triggerAt) / intervalMillis) + 1
+                // Round up to ensure we schedule in the future
+                val intervalsPassed = ((now - triggerAt + intervalMillis - 1) / intervalMillis)
                 finalTriggerAt = triggerAt + (intervalsPassed * intervalMillis)
                 Log.d(TAG, "Recurring alarm id=$id: original time in past, rescheduled to next occurrence")
             } else if (triggerAt <= now) {
