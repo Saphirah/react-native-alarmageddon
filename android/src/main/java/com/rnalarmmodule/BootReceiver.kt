@@ -56,6 +56,9 @@ class BootReceiver : BroadcastReceiver() {
             val datetimeISO = obj.optString("datetimeISO", "")
             val title = obj.optString("title", "Alarm")
             val body = obj.optString("body", "")
+            val snoozeEnabled = obj.optBoolean("snoozeEnabled", true)
+            val snoozeInterval = obj.optInt("snoozeInterval", 5)
+            val repeatFrequency = obj.optInt("repeatFrequency", -1)
 
             val date = try {
                 sdf.parse(datetimeISO)
@@ -64,8 +67,18 @@ class BootReceiver : BroadcastReceiver() {
             } ?: continue
             
             val triggerAt = date.time
-            if (triggerAt <= now) {
-                // Past alarms: skip (could optionally fire immediately if desired)
+            
+            // For recurring alarms with past trigger times, calculate next occurrence
+            var finalTriggerAt = triggerAt
+            if (triggerAt <= now && repeatFrequency >= 0) {
+                val intervalMillis = AlarmModule.getRepeatIntervalMillis(repeatFrequency)
+                // Calculate how many intervals have passed and get the next future occurrence
+                // Using integer division rounding up: (a + b - 1) / b rounds up for positive integers
+                val intervalsPassed = ((now - triggerAt + intervalMillis - 1) / intervalMillis)
+                finalTriggerAt = triggerAt + (intervalsPassed * intervalMillis)
+                Log.d(TAG, "Recurring alarm id=$id: original time in past, rescheduled to next occurrence")
+            } else if (triggerAt <= now) {
+                // Past one-time alarms: skip
                 skippedCount++
                 continue
             }
@@ -74,6 +87,9 @@ class BootReceiver : BroadcastReceiver() {
                 putExtra("id", id)
                 putExtra("title", title)
                 putExtra("body", body)
+                putExtra("snoozeEnabled", snoozeEnabled)
+                putExtra("snoozeInterval", snoozeInterval)
+                putExtra("repeatFrequency", repeatFrequency)
             }
 
             val pendingIntent = PendingIntent.getBroadcast(
@@ -83,10 +99,16 @@ class BootReceiver : BroadcastReceiver() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+            // Use repeating or exact alarm based on repeatFrequency
+            if (repeatFrequency >= 0) {
+                val intervalMillis = AlarmModule.getRepeatIntervalMillis(repeatFrequency)
+                alarmManager.setRepeating(AlarmManager.RTC_WAKEUP, finalTriggerAt, intervalMillis, pendingIntent)
             } else {
-                alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, finalTriggerAt, pendingIntent)
+                } else {
+                    alarmManager.setExact(AlarmManager.RTC_WAKEUP, finalTriggerAt, pendingIntent)
+                }
             }
 
             rescheduledCount++

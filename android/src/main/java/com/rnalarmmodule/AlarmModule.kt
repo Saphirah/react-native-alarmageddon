@@ -24,6 +24,18 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
         private var reactContextRef: WeakReference<ReactApplicationContext>? = null
 
         fun getReactContext(): ReactApplicationContext? = reactContextRef?.get()
+
+        /**
+         * Get interval in milliseconds for repeat frequency
+         */
+        fun getRepeatIntervalMillis(repeatFrequency: Int): Long {
+            return when (repeatFrequency) {
+                0 -> AlarmManager.INTERVAL_HOUR  // HOURLY
+                1 -> AlarmManager.INTERVAL_DAY   // DAILY
+                2 -> AlarmManager.INTERVAL_DAY * 7  // WEEKLY
+                else -> AlarmManager.INTERVAL_DAY
+            }
+        }
     }
 
     init {
@@ -67,6 +79,7 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
             val body = alarm.optString("body", "")
             val snoozeEnabled = alarm.optBoolean("snoozeEnabled", true)
             val snoozeInterval = alarm.optInt("snoozeInterval", 5)
+            val repeatFrequency = alarm.optInt("repeatFrequency", -1)
 
             val intent = Intent(reactApplicationContext, AlarmReceiver::class.java).apply {
                 action = AlarmReceiver.ACTION_SNOOZE
@@ -76,6 +89,7 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
                 putExtra("snoozeMinutes", minutes)
                 putExtra("snoozeEnabled", snoozeEnabled)
                 putExtra("snoozeInterval", snoozeInterval)
+                putExtra("repeatFrequency", repeatFrequency)
             }
             reactApplicationContext.sendBroadcast(intent)
             promise.resolve(null)
@@ -104,6 +118,7 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
             val body = alarm.getString("body") ?: ""
             val snoozeEnabled = if (alarm.hasKey("snoozeEnabled")) alarm.getBoolean("snoozeEnabled") else true
             val snoozeInterval = if (alarm.hasKey("snoozeInterval")) alarm.getInt("snoozeInterval") else 5
+            val repeatFrequency = if (alarm.hasKey("repeatFrequency")) alarm.getInt("repeatFrequency") else -1
 
             val sdf = SimpleDateFormat(DATE_PATTERN, Locale.getDefault())
             val date = sdf.parse(datetimeISO) ?: throw Exception("Invalid date format")
@@ -121,6 +136,7 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
                 putExtra("body", body)
                 putExtra("snoozeEnabled", snoozeEnabled)
                 putExtra("snoozeInterval", snoozeInterval)
+                putExtra("repeatFrequency", repeatFrequency)
             }
 
             val pendingIntent = PendingIntent.getBroadcast(
@@ -130,15 +146,26 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            // Use exact alarm scheduling
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+            // Use repeating or exact alarm based on repeatFrequency
+            if (repeatFrequency >= 0) {
+                // Repeating alarm
+                // Note: setRepeating() is inexact on Android API 19+ (KitKat and above).
+                // The system may batch alarms together to preserve battery life.
+                // For exact recurring alarms, the app would need to reschedule exact alarms
+                // after each trigger, which is not implemented here for simplicity.
+                val intervalMillis = getRepeatIntervalMillis(repeatFrequency)
+                alarmManager.setRepeating(AlarmManager.RTC_WAKEUP, triggerAt, intervalMillis, pendingIntent)
             } else {
-                alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+                // One-time exact alarm
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+                } else {
+                    alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+                }
             }
 
-            saveAlarm(id, datetimeISO, title, body, snoozeEnabled, snoozeInterval)
-            Log.d(TAG, "Scheduled alarm id=$id at=$datetimeISO")
+            saveAlarm(id, datetimeISO, title, body, snoozeEnabled, snoozeInterval, repeatFrequency)
+            Log.d(TAG, "Scheduled alarm id=$id at=$datetimeISO repeatFrequency=$repeatFrequency")
             promise.resolve(null)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to schedule alarm: ${e.message}")
@@ -186,6 +213,7 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
             map.putString("body", obj.optString("body"))
             map.putBoolean("snoozeEnabled", obj.optBoolean("snoozeEnabled", true))
             map.putInt("snoozeInterval", obj.optInt("snoozeInterval", 5))
+            map.putInt("repeatFrequency", obj.optInt("repeatFrequency", -1))
             arr.pushMap(map)
         }
         promise.resolve(arr)
@@ -232,7 +260,7 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
         // Required for NativeEventEmitter
     }
 
-    private fun saveAlarm(id: String, datetimeISO: String, title: String, body: String, snoozeEnabled: Boolean = true, snoozeInterval: Int = 5) {
+    private fun saveAlarm(id: String, datetimeISO: String, title: String, body: String, snoozeEnabled: Boolean = true, snoozeInterval: Int = 5, repeatFrequency: Int = -1) {
         val obj = JSONObject()
             .put("id", id)
             .put("datetimeISO", datetimeISO)
@@ -240,6 +268,7 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
             .put("body", body)
             .put("snoozeEnabled", snoozeEnabled)
             .put("snoozeInterval", snoozeInterval)
+            .put("repeatFrequency", repeatFrequency)
         val prefs = reactApplicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs.edit().putString(id, obj.toString()).apply()
     }

@@ -1,6 +1,7 @@
 import Foundation
 import React
 import UserNotifications
+import os.log
 
 @objc(AlarmModule)
 class AlarmModule: RCTEventEmitter {
@@ -49,6 +50,7 @@ class AlarmModule: RCTEventEmitter {
         let body = alarm["body"] as? String ?? ""
         let snoozeEnabled = alarm["snoozeEnabled"] as? Bool ?? true
         let snoozeInterval = alarm["snoozeInterval"] as? Int ?? 5
+        let repeatFrequency = alarm["repeatFrequency"] as? Int ?? -1
         
         // Parse ISO date
         let dateFormatter = ISO8601DateFormatter()
@@ -85,16 +87,37 @@ class AlarmModule: RCTEventEmitter {
         content.userInfo = [
             "alarmId": id,
             "snoozeEnabled": snoozeEnabled,
-            "snoozeInterval": snoozeInterval
+            "snoozeInterval": snoozeInterval,
+            "repeatFrequency": repeatFrequency
         ]
         
         // Register notification category with appropriate actions
         registerNotificationCategory(snoozeEnabled: snoozeEnabled)
         
-        // Create trigger
+        // Create trigger based on repeatFrequency
+        let trigger: UNNotificationTrigger
         let calendar = Calendar.current
-        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
-        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+        
+        if repeatFrequency >= 0 {
+            // Repeating alarm
+            var components: DateComponents
+            switch repeatFrequency {
+            case 0: // HOURLY
+                components = calendar.dateComponents([.minute, .second], from: date)
+            case 1: // DAILY
+                components = calendar.dateComponents([.hour, .minute, .second], from: date)
+            case 2: // WEEKLY
+                components = calendar.dateComponents([.weekday, .hour, .minute, .second], from: date)
+            default: // Invalid values default to DAILY behavior
+                os_log("Invalid repeatFrequency value %d, defaulting to DAILY", log: .default, type: .error, repeatFrequency)
+                components = calendar.dateComponents([.hour, .minute, .second], from: date)
+            }
+            trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
+        } else {
+            // One-time alarm
+            let components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+            trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+        }
         
         // Create request
         let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
@@ -106,7 +129,7 @@ class AlarmModule: RCTEventEmitter {
             }
             
             // Save alarm to UserDefaults
-            self.saveAlarm(id: id, datetimeISO: datetimeISO, title: title, body: body, snoozeEnabled: snoozeEnabled, snoozeInterval: snoozeInterval)
+            self.saveAlarm(id: id, datetimeISO: datetimeISO, title: title, body: body, snoozeEnabled: snoozeEnabled, snoozeInterval: snoozeInterval, repeatFrequency: repeatFrequency)
             resolve(nil)
         }
     }
@@ -211,6 +234,7 @@ class AlarmModule: RCTEventEmitter {
             let body = (alarm["body"] ?? "") + " (Snoozed)"
             let snoozeEnabled = (alarm["snoozeEnabled"] as NSString?)?.boolValue ?? true
             let snoozeInterval = Int(alarm["snoozeInterval"] ?? "5") ?? 5
+            let repeatFrequency = Int(alarm["repeatFrequency"] ?? "-1") ?? -1
             
             let content = UNMutableNotificationContent()
             content.title = title
@@ -220,7 +244,8 @@ class AlarmModule: RCTEventEmitter {
             content.userInfo = [
                 "alarmId": id,
                 "snoozeEnabled": snoozeEnabled,
-                "snoozeInterval": snoozeInterval
+                "snoozeInterval": snoozeInterval,
+                "repeatFrequency": repeatFrequency
             ]
             
             registerNotificationCategory(snoozeEnabled: snoozeEnabled)
@@ -251,7 +276,7 @@ class AlarmModule: RCTEventEmitter {
     
     // MARK: - Storage Helpers
     
-    private func saveAlarm(id: String, datetimeISO: String, title: String, body: String, snoozeEnabled: Bool = true, snoozeInterval: Int = 5) {
+    private func saveAlarm(id: String, datetimeISO: String, title: String, body: String, snoozeEnabled: Bool = true, snoozeInterval: Int = 5, repeatFrequency: Int = -1) {
         var alarms = getAlarmsDict()
         alarms[id] = [
             "id": id,
@@ -259,7 +284,8 @@ class AlarmModule: RCTEventEmitter {
             "title": title,
             "body": body,
             "snoozeEnabled": String(snoozeEnabled),
-            "snoozeInterval": String(snoozeInterval)
+            "snoozeInterval": String(snoozeInterval),
+            "repeatFrequency": String(repeatFrequency)
         ]
         UserDefaults.standard.set(alarms, forKey: AlarmModule.PREFS_KEY)
     }
