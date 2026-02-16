@@ -24,6 +24,18 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
         private var reactContextRef: WeakReference<ReactApplicationContext>? = null
 
         fun getReactContext(): ReactApplicationContext? = reactContextRef?.get()
+
+        /**
+         * Get interval in milliseconds for repeat frequency
+         */
+        fun getRepeatIntervalMillis(repeatFrequency: Int): Long {
+            return when (repeatFrequency) {
+                0 -> AlarmManager.INTERVAL_HOUR  // HOURLY
+                1 -> AlarmManager.INTERVAL_DAY   // DAILY
+                2 -> AlarmManager.INTERVAL_DAY * 7  // WEEKLY
+                else -> AlarmManager.INTERVAL_DAY
+            }
+        }
     }
 
     init {
@@ -137,12 +149,11 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
             // Use repeating or exact alarm based on repeatFrequency
             if (repeatFrequency >= 0) {
                 // Repeating alarm
-                val intervalMillis = when (repeatFrequency) {
-                    0 -> AlarmManager.INTERVAL_HOUR  // HOURLY
-                    1 -> AlarmManager.INTERVAL_DAY   // DAILY
-                    2 -> AlarmManager.INTERVAL_DAY * 7  // WEEKLY
-                    else -> AlarmManager.INTERVAL_DAY
-                }
+                // Note: setRepeating() is inexact on Android API 19+ (KitKat and above).
+                // The system may batch alarms together to preserve battery life.
+                // For exact recurring alarms, the app would need to reschedule exact alarms
+                // after each trigger, which is not implemented here for simplicity.
+                val intervalMillis = getRepeatIntervalMillis(repeatFrequency)
                 alarmManager.setRepeating(AlarmManager.RTC_WAKEUP, triggerAt, intervalMillis, pendingIntent)
             } else {
                 // One-time exact alarm

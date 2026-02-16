@@ -67,13 +67,16 @@ class BootReceiver : BroadcastReceiver() {
             } ?: continue
             
             val triggerAt = date.time
-            if (triggerAt <= now) {
-                // For recurring alarms, calculate the next occurrence
-                if (repeatFrequency >= 0) {
-                    // Skip for now - recurring alarms will be handled by the alarm manager
-                    skippedCount++
-                    continue
-                }
+            
+            // For recurring alarms with past trigger times, calculate next occurrence
+            var finalTriggerAt = triggerAt
+            if (triggerAt <= now && repeatFrequency >= 0) {
+                val intervalMillis = AlarmModule.getRepeatIntervalMillis(repeatFrequency)
+                // Calculate how many intervals have passed and get the next future occurrence
+                val intervalsPassed = ((now - triggerAt) / intervalMillis) + 1
+                finalTriggerAt = triggerAt + (intervalsPassed * intervalMillis)
+                Log.d(TAG, "Recurring alarm id=$id: original time in past, rescheduled to next occurrence")
+            } else if (triggerAt <= now) {
                 // Past one-time alarms: skip
                 skippedCount++
                 continue
@@ -97,18 +100,13 @@ class BootReceiver : BroadcastReceiver() {
 
             // Use repeating or exact alarm based on repeatFrequency
             if (repeatFrequency >= 0) {
-                val intervalMillis = when (repeatFrequency) {
-                    0 -> AlarmManager.INTERVAL_HOUR  // HOURLY
-                    1 -> AlarmManager.INTERVAL_DAY   // DAILY
-                    2 -> AlarmManager.INTERVAL_DAY * 7  // WEEKLY
-                    else -> AlarmManager.INTERVAL_DAY
-                }
-                alarmManager.setRepeating(AlarmManager.RTC_WAKEUP, triggerAt, intervalMillis, pendingIntent)
+                val intervalMillis = AlarmModule.getRepeatIntervalMillis(repeatFrequency)
+                alarmManager.setRepeating(AlarmManager.RTC_WAKEUP, finalTriggerAt, intervalMillis, pendingIntent)
             } else {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, finalTriggerAt, pendingIntent)
                 } else {
-                    alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+                    alarmManager.setExact(AlarmManager.RTC_WAKEUP, finalTriggerAt, pendingIntent)
                 }
             }
 
