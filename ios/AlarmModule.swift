@@ -1,6 +1,7 @@
 import Foundation
 import React
 import UserNotifications
+import os.log
 
 @objc(AlarmModule)
 class AlarmModule: RCTEventEmitter {
@@ -108,6 +109,7 @@ class AlarmModule: RCTEventEmitter {
             case 2: // WEEKLY
                 components = calendar.dateComponents([.weekday, .hour, .minute, .second], from: date)
             default: // Invalid values default to DAILY behavior
+                os_log("Invalid repeatFrequency value %d, defaulting to DAILY", log: .default, type: .error, repeatFrequency)
                 components = calendar.dateComponents([.hour, .minute, .second], from: date)
             }
             trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
