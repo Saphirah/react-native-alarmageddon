@@ -64,6 +64,7 @@ class AlarmReceiver : BroadcastReceiver() {
         val body = intent.getStringExtra("body") ?: ""
         val snoozeEnabled = intent.getBooleanExtra("snoozeEnabled", true)
         val snoozeInterval = intent.getIntExtra("snoozeInterval", SNOOZE_MINUTES)
+        val repeatFrequency = intent.getIntExtra("repeatFrequency", -1)
         activeAlarmId = id
 
         emitActiveAlarmId(activeAlarmId)
@@ -72,6 +73,11 @@ class AlarmReceiver : BroadcastReceiver() {
         setupAudio(context)
         playAlarm(context, id)
         showNotificationWithActions(context, id, title, body, snoozeEnabled, snoozeInterval)
+        
+        // Auto-reschedule repeating alarms
+        if (repeatFrequency >= 0) {
+            rescheduleRepeatingAlarm(context, id, title, body, snoozeEnabled, snoozeInterval, repeatFrequency)
+        }
     }
 
     private fun acquireWakeLock(context: Context) {
@@ -310,11 +316,17 @@ class AlarmReceiver : BroadcastReceiver() {
         val title = originalIntent.getStringExtra("title") ?: "Alarm"
         val body = originalIntent.getStringExtra("body") ?: ""
         val minutes = originalIntent.getIntExtra("snoozeMinutes", SNOOZE_MINUTES)
+        val repeatFrequency = originalIntent.getIntExtra("repeatFrequency", -1)
+        val snoozeEnabled = originalIntent.getBooleanExtra("snoozeEnabled", true)
+        val snoozeInterval = originalIntent.getIntExtra("snoozeInterval", SNOOZE_MINUTES)
 
         val snoozeIntent = Intent(context, AlarmReceiver::class.java).apply {
             putExtra("id", id)
             putExtra("title", title)
             putExtra("body", body)
+            putExtra("repeatFrequency", repeatFrequency)
+            putExtra("snoozeEnabled", snoozeEnabled)
+            putExtra("snoozeInterval", snoozeInterval)
         }
 
         val pendingIntent = PendingIntent.getBroadcast(
@@ -322,16 +334,59 @@ class AlarmReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val triggerTime = System.currentTimeMillis() + minutes * 60 * 1000
+        val triggerTime = System.currentTimeMillis() + minutes * 60L * 1000L
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
-        } else {
-            alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
-        }
+        val showPendingIntent = AlarmModule.createShowIntent(context, id, pendingIntent)
+        val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerTime, showPendingIntent)
+        alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
 
         Toast.makeText(context, "Snoozed for $minutes minutes", Toast.LENGTH_SHORT).show()
         Log.d(TAG, "Alarm $id snoozed for $minutes minutes")
+    }
+
+    /**
+     * Reschedule a repeating alarm for its next occurrence.
+     * This method is called automatically after a repeating alarm triggers to schedule
+     * the next occurrence at the exact interval (hourly, daily, or weekly).
+     * 
+     * @param context The Android context
+     * @param id The unique alarm identifier
+     * @param title The alarm notification title
+     * @param body The alarm notification body
+     * @param snoozeEnabled Whether snoozing is enabled for this alarm
+     * @param snoozeInterval The snooze interval in minutes
+     * @param repeatFrequency The repeat frequency (0=hourly, 1=daily, 2=weekly)
+     */
+    private fun rescheduleRepeatingAlarm(context: Context, id: String, title: String, body: String, snoozeEnabled: Boolean, snoozeInterval: Int, repeatFrequency: Int) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intervalMillis = AlarmModule.getRepeatIntervalMillis(repeatFrequency)
+        
+        // Calculate next trigger time
+        // Note: intervalMillis is bounded (max 7 days), so overflow is not a practical concern
+        val currentTime = System.currentTimeMillis()
+        val nextTriggerTime = currentTime + intervalMillis
+
+        val alarmIntent = Intent(context, AlarmReceiver::class.java).apply {
+            putExtra("id", id)
+            putExtra("title", title)
+            putExtra("body", body)
+            putExtra("snoozeEnabled", snoozeEnabled)
+            putExtra("snoozeInterval", snoozeInterval)
+            putExtra("repeatFrequency", repeatFrequency)
+        }
+
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            id.hashCode(),
+            alarmIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val showPendingIntent = AlarmModule.createShowIntent(context, id, pendingIntent)
+        val alarmClockInfo = AlarmManager.AlarmClockInfo(nextTriggerTime, showPendingIntent)
+        alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
+
+        Log.d(TAG, "Rescheduled repeating alarm id=$id for next occurrence in ${intervalMillis / 1000}s")
     }
 
     private fun emitActiveAlarmId(id: String?) {

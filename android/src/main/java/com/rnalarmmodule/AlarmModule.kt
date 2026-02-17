@@ -19,6 +19,7 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
         private const val TAG = "AlarmModule"
         private const val PREFS = "rn_alarm_module_alarms"
         private const val DATE_PATTERN = "yyyy-MM-dd'T'HH:mm:ss"
+        private const val SHOW_INTENT_REQUEST_CODE_OFFSET = 999
 
         // Weak reference to avoid memory leaks - used by AlarmReceiver to emit events
         private var reactContextRef: WeakReference<ReactApplicationContext>? = null
@@ -34,6 +35,44 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
                 1 -> AlarmManager.INTERVAL_DAY   // DAILY
                 2 -> AlarmManager.INTERVAL_DAY * 7  // WEEKLY
                 else -> AlarmManager.INTERVAL_DAY
+            }
+        }
+
+        /**
+         * Create a PendingIntent for the alarm clock show intent.
+         * This intent is used when the user taps on the alarm notification in the status bar.
+         * 
+         * @param context The Android context
+         * @param id The unique alarm identifier
+         * @param alarmPendingIntent The fallback PendingIntent if launch intent cannot be created
+         * @return A PendingIntent that will launch the app, or the fallback if unavailable
+         */
+        fun createShowIntent(context: Context, id: String, alarmPendingIntent: PendingIntent): PendingIntent {
+            val showIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                putExtra("alarm_id", id)
+            }
+            
+            return if (showIntent != null) {
+                // Use absolute value of hashCode to ensure positive request code
+                // Add offset to differentiate show intent from alarm intent
+                val baseCode = kotlin.math.abs(id.hashCode())
+                val requestCode = if (baseCode < Int.MAX_VALUE - SHOW_INTENT_REQUEST_CODE_OFFSET) {
+                    baseCode + SHOW_INTENT_REQUEST_CODE_OFFSET
+                } else {
+                    // If adding offset would overflow, use baseCode without offset
+                    baseCode
+                }
+                
+                PendingIntent.getActivity(
+                    context,
+                    requestCode,
+                    showIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            } else {
+                // Fallback if we can't get launch intent
+                alarmPendingIntent
             }
         }
     }
@@ -146,23 +185,11 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            // Use repeating or exact alarm based on repeatFrequency
-            if (repeatFrequency >= 0) {
-                // Repeating alarm
-                // Note: setRepeating() is inexact on Android API 19+ (KitKat and above).
-                // The system may batch alarms together to preserve battery life.
-                // For exact recurring alarms, the app would need to reschedule exact alarms
-                // after each trigger, which is not implemented here for simplicity.
-                val intervalMillis = getRepeatIntervalMillis(repeatFrequency)
-                alarmManager.setRepeating(AlarmManager.RTC_WAKEUP, triggerAt, intervalMillis, pendingIntent)
-            } else {
-                // One-time exact alarm
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
-                } else {
-                    alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
-                }
-            }
+            // Use setAlarmClock for exact alarms (both one-time and repeating)
+            // For repeating alarms, we'll reschedule in AlarmReceiver after each trigger
+            val showPendingIntent = createShowIntent(reactApplicationContext, id, pendingIntent)
+            val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerAt, showPendingIntent)
+            alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
 
             saveAlarm(id, datetimeISO, title, body, snoozeEnabled, snoozeInterval, repeatFrequency)
             Log.d(TAG, "Scheduled alarm id=$id at=$datetimeISO repeatFrequency=$repeatFrequency")
@@ -237,11 +264,10 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
 
             val alarmManager = reactApplicationContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             val triggerAt = System.currentTimeMillis() + snoozeMinutes * 60_000L
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
-            } else {
-                alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
-            }
+            
+            val showPendingIntent = createShowIntent(reactApplicationContext, id, pendingIntent)
+            val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerAt, showPendingIntent)
+            alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
             Log.d(TAG, "Snoozed alarm for $snoozeMinutes minutes")
             promise.resolve(null)
         } catch (e: Exception) {

@@ -99,17 +99,11 @@ class BootReceiver : BroadcastReceiver() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            // Use repeating or exact alarm based on repeatFrequency
-            if (repeatFrequency >= 0) {
-                val intervalMillis = AlarmModule.getRepeatIntervalMillis(repeatFrequency)
-                alarmManager.setRepeating(AlarmManager.RTC_WAKEUP, finalTriggerAt, intervalMillis, pendingIntent)
-            } else {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, finalTriggerAt, pendingIntent)
-                } else {
-                    alarmManager.setExact(AlarmManager.RTC_WAKEUP, finalTriggerAt, pendingIntent)
-                }
-            }
+            // Use setAlarmClock for exact alarms (both one-time and repeating)
+            // For repeating alarms, AlarmReceiver will auto-reschedule after each trigger
+            val showPendingIntent = AlarmModule.createShowIntent(context, id, pendingIntent)
+            val alarmClockInfo = AlarmManager.AlarmClockInfo(finalTriggerAt, showPendingIntent)
+            alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
 
             rescheduledCount++
             Log.d(TAG, "Rescheduled alarm id=$id at=$datetimeISO")
