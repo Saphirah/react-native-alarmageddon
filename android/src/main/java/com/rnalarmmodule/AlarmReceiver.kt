@@ -360,7 +360,11 @@ class AlarmReceiver : BroadcastReceiver() {
     private fun rescheduleRepeatingAlarm(context: Context, id: String, title: String, body: String, snoozeEnabled: Boolean, snoozeInterval: Int, repeatFrequency: Int) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val intervalMillis = AlarmModule.getRepeatIntervalMillis(repeatFrequency)
-        val nextTriggerTime = System.currentTimeMillis() + intervalMillis
+        
+        // Calculate next trigger time
+        // Note: intervalMillis is bounded (max 7 days), so overflow is not a practical concern
+        val currentTime = System.currentTimeMillis()
+        val nextTriggerTime = currentTime + intervalMillis
 
         val alarmIntent = Intent(context, AlarmReceiver::class.java).apply {
             putExtra("id", id)

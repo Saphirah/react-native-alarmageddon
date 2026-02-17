@@ -57,7 +57,7 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
                 // Use absolute value of hashCode to ensure positive request code
                 // Add offset to differentiate show intent from alarm intent
                 val baseCode = kotlin.math.abs(id.hashCode())
-                val requestCode = if (baseCode <= Int.MAX_VALUE - SHOW_INTENT_REQUEST_CODE_OFFSET) {
+                val requestCode = if (baseCode < Int.MAX_VALUE - SHOW_INTENT_REQUEST_CODE_OFFSET) {
                     baseCode + SHOW_INTENT_REQUEST_CODE_OFFSET
                 } else {
                     // If adding offset would overflow, use baseCode without offset
