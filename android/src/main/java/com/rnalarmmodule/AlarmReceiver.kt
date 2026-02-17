@@ -334,7 +334,7 @@ class AlarmReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val triggerTime = System.currentTimeMillis() + minutes * 60 * 1000
+        val triggerTime = System.currentTimeMillis() + minutes * 60L * 1000L
 
         val showPendingIntent = AlarmModule.createShowIntent(context, id, pendingIntent)
         val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerTime, showPendingIntent)
