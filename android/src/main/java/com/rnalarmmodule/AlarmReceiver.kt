@@ -330,23 +330,7 @@ class AlarmReceiver : BroadcastReceiver() {
 
         val triggerTime = System.currentTimeMillis() + minutes * 60 * 1000
 
-        // Create show intent for alarm clock info
-        val showIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            putExtra("alarm_id", id)
-        }
-        
-        val showPendingIntent = if (showIntent != null) {
-            PendingIntent.getActivity(
-                context,
-                id.hashCode() + 999,
-                showIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-        } else {
-            pendingIntent
-        }
-        
+        val showPendingIntent = AlarmModule.createShowIntent(context, id, pendingIntent)
         val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerTime, showPendingIntent)
         alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
 
@@ -375,23 +359,7 @@ class AlarmReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Create show intent for alarm clock info
-        val showIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            putExtra("alarm_id", id)
-        }
-        
-        val showPendingIntent = if (showIntent != null) {
-            PendingIntent.getActivity(
-                context,
-                id.hashCode() + 999,
-                showIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-        } else {
-            pendingIntent
-        }
-        
+        val showPendingIntent = AlarmModule.createShowIntent(context, id, pendingIntent)
         val alarmClockInfo = AlarmManager.AlarmClockInfo(nextTriggerTime, showPendingIntent)
         alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
 

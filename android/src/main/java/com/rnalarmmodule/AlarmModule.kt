@@ -19,6 +19,7 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
         private const val TAG = "AlarmModule"
         private const val PREFS = "rn_alarm_module_alarms"
         private const val DATE_PATTERN = "yyyy-MM-dd'T'HH:mm:ss"
+        private const val SHOW_INTENT_REQUEST_CODE_OFFSET = 999
 
         // Weak reference to avoid memory leaks - used by AlarmReceiver to emit events
         private var reactContextRef: WeakReference<ReactApplicationContext>? = null
@@ -34,6 +35,28 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
                 1 -> AlarmManager.INTERVAL_DAY   // DAILY
                 2 -> AlarmManager.INTERVAL_DAY * 7  // WEEKLY
                 else -> AlarmManager.INTERVAL_DAY
+            }
+        }
+
+        /**
+         * Create a PendingIntent for the alarm clock show intent
+         */
+        fun createShowIntent(context: Context, id: String, alarmPendingIntent: PendingIntent): PendingIntent {
+            val showIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                putExtra("alarm_id", id)
+            }
+            
+            return if (showIntent != null) {
+                PendingIntent.getActivity(
+                    context,
+                    id.hashCode() + SHOW_INTENT_REQUEST_CODE_OFFSET,
+                    showIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            } else {
+                // Fallback if we can't get launch intent
+                alarmPendingIntent
             }
         }
     }
@@ -148,24 +171,7 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
 
             // Use setAlarmClock for exact alarms (both one-time and repeating)
             // For repeating alarms, we'll reschedule in AlarmReceiver after each trigger
-            // Create a PendingIntent for the alarm clock info (shown to user)
-            val showIntent = reactApplicationContext.packageManager.getLaunchIntentForPackage(reactApplicationContext.packageName)?.apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                putExtra("alarm_id", id)
-            }
-            
-            val showPendingIntent = if (showIntent != null) {
-                PendingIntent.getActivity(
-                    reactApplicationContext,
-                    id.hashCode() + 999,
-                    showIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
-            } else {
-                // Fallback if we can't get launch intent
-                pendingIntent
-            }
-            
+            val showPendingIntent = createShowIntent(reactApplicationContext, id, pendingIntent)
             val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerAt, showPendingIntent)
             alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
 
@@ -243,23 +249,7 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
             val alarmManager = reactApplicationContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             val triggerAt = System.currentTimeMillis() + snoozeMinutes * 60_000L
             
-            // Create show intent for alarm clock info
-            val showIntent = reactApplicationContext.packageManager.getLaunchIntentForPackage(reactApplicationContext.packageName)?.apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                putExtra("alarm_id", id)
-            }
-            
-            val showPendingIntent = if (showIntent != null) {
-                PendingIntent.getActivity(
-                    reactApplicationContext,
-                    id.hashCode() + 999,
-                    showIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
-            } else {
-                pendingIntent
-            }
-            
+            val showPendingIntent = createShowIntent(reactApplicationContext, id, pendingIntent)
             val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerAt, showPendingIntent)
             alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
             Log.d(TAG, "Snoozed alarm for $snoozeMinutes minutes")
