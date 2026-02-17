@@ -146,23 +146,28 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            // Use repeating or exact alarm based on repeatFrequency
-            if (repeatFrequency >= 0) {
-                // Repeating alarm
-                // Note: setRepeating() is inexact on Android API 19+ (KitKat and above).
-                // The system may batch alarms together to preserve battery life.
-                // For exact recurring alarms, the app would need to reschedule exact alarms
-                // after each trigger, which is not implemented here for simplicity.
-                val intervalMillis = getRepeatIntervalMillis(repeatFrequency)
-                alarmManager.setRepeating(AlarmManager.RTC_WAKEUP, triggerAt, intervalMillis, pendingIntent)
-            } else {
-                // One-time exact alarm
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
-                } else {
-                    alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
-                }
+            // Use setAlarmClock for exact alarms (both one-time and repeating)
+            // For repeating alarms, we'll reschedule in AlarmReceiver after each trigger
+            // Create a PendingIntent for the alarm clock info (shown to user)
+            val showIntent = reactApplicationContext.packageManager.getLaunchIntentForPackage(reactApplicationContext.packageName)?.apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                putExtra("alarm_id", id)
             }
+            
+            val showPendingIntent = if (showIntent != null) {
+                PendingIntent.getActivity(
+                    reactApplicationContext,
+                    id.hashCode() + 999,
+                    showIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            } else {
+                // Fallback if we can't get launch intent
+                pendingIntent
+            }
+            
+            val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerAt, showPendingIntent)
+            alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
 
             saveAlarm(id, datetimeISO, title, body, snoozeEnabled, snoozeInterval, repeatFrequency)
             Log.d(TAG, "Scheduled alarm id=$id at=$datetimeISO repeatFrequency=$repeatFrequency")
@@ -237,11 +242,26 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
 
             val alarmManager = reactApplicationContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             val triggerAt = System.currentTimeMillis() + snoozeMinutes * 60_000L
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
-            } else {
-                alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+            
+            // Create show intent for alarm clock info
+            val showIntent = reactApplicationContext.packageManager.getLaunchIntentForPackage(reactApplicationContext.packageName)?.apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                putExtra("alarm_id", id)
             }
+            
+            val showPendingIntent = if (showIntent != null) {
+                PendingIntent.getActivity(
+                    reactApplicationContext,
+                    id.hashCode() + 999,
+                    showIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            } else {
+                pendingIntent
+            }
+            
+            val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerAt, showPendingIntent)
+            alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
             Log.d(TAG, "Snoozed alarm for $snoozeMinutes minutes")
             promise.resolve(null)
         } catch (e: Exception) {

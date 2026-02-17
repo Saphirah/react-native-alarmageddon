@@ -4,7 +4,8 @@ Native exact alarm scheduling for React Native with sound, snooze, and boot pers
 
 ## Features
 
-- ⏰ **Exact Alarms**: Uses Android's `setExactAndAllowWhileIdle` for precise scheduling
+- ⏰ **Exact Alarms**: Uses Android's `setAlarmClock` for precise scheduling
+- 🔁 **Exact Repeating Alarms**: Automatically reschedules repeating alarms for precise hourly/daily/weekly intervals
 - 🔊 **Alarm Sound**: Plays alarm audio at maximum volume with audio focus
 - 💤 **Snooze Support**: Built-in snooze functionality with customizable duration
 - 🔄 **Boot Persistence**: Alarms are automatically rescheduled after device reboot
@@ -224,7 +225,8 @@ Returns a subscription object with a `remove()` method to unsubscribe.
 
 ### Alarm Triggering
 
-- Alarms use `AlarmManager.setExactAndAllowWhileIdle()` for precise scheduling
+- Alarms use `AlarmManager.setAlarmClock()` for precise scheduling with high priority
+- Repeating alarms (hourly, daily, weekly) are automatically rescheduled after each trigger for exact timing
 - When triggered, the alarm plays at maximum volume on the `STREAM_ALARM` audio channel
 - A wake lock is acquired to ensure the device stays awake during playback
 - The alarm auto-stops after 60 seconds if not dismissed

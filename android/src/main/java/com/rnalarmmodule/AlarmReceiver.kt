@@ -64,6 +64,7 @@ class AlarmReceiver : BroadcastReceiver() {
         val body = intent.getStringExtra("body") ?: ""
         val snoozeEnabled = intent.getBooleanExtra("snoozeEnabled", true)
         val snoozeInterval = intent.getIntExtra("snoozeInterval", SNOOZE_MINUTES)
+        val repeatFrequency = intent.getIntExtra("repeatFrequency", -1)
         activeAlarmId = id
 
         emitActiveAlarmId(activeAlarmId)
@@ -72,6 +73,11 @@ class AlarmReceiver : BroadcastReceiver() {
         setupAudio(context)
         playAlarm(context, id)
         showNotificationWithActions(context, id, title, body, snoozeEnabled, snoozeInterval)
+        
+        // Auto-reschedule repeating alarms
+        if (repeatFrequency >= 0) {
+            rescheduleRepeatingAlarm(context, id, title, body, snoozeEnabled, snoozeInterval, repeatFrequency)
+        }
     }
 
     private fun acquireWakeLock(context: Context) {
@@ -324,14 +330,72 @@ class AlarmReceiver : BroadcastReceiver() {
 
         val triggerTime = System.currentTimeMillis() + minutes * 60 * 1000
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
-        } else {
-            alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+        // Create show intent for alarm clock info
+        val showIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            putExtra("alarm_id", id)
         }
+        
+        val showPendingIntent = if (showIntent != null) {
+            PendingIntent.getActivity(
+                context,
+                id.hashCode() + 999,
+                showIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        } else {
+            pendingIntent
+        }
+        
+        val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerTime, showPendingIntent)
+        alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
 
         Toast.makeText(context, "Snoozed for $minutes minutes", Toast.LENGTH_SHORT).show()
         Log.d(TAG, "Alarm $id snoozed for $minutes minutes")
+    }
+
+    private fun rescheduleRepeatingAlarm(context: Context, id: String, title: String, body: String, snoozeEnabled: Boolean, snoozeInterval: Int, repeatFrequency: Int) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intervalMillis = AlarmModule.getRepeatIntervalMillis(repeatFrequency)
+        val nextTriggerTime = System.currentTimeMillis() + intervalMillis
+
+        val alarmIntent = Intent(context, AlarmReceiver::class.java).apply {
+            putExtra("id", id)
+            putExtra("title", title)
+            putExtra("body", body)
+            putExtra("snoozeEnabled", snoozeEnabled)
+            putExtra("snoozeInterval", snoozeInterval)
+            putExtra("repeatFrequency", repeatFrequency)
+        }
+
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            id.hashCode(),
+            alarmIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Create show intent for alarm clock info
+        val showIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            putExtra("alarm_id", id)
+        }
+        
+        val showPendingIntent = if (showIntent != null) {
+            PendingIntent.getActivity(
+                context,
+                id.hashCode() + 999,
+                showIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        } else {
+            pendingIntent
+        }
+        
+        val alarmClockInfo = AlarmManager.AlarmClockInfo(nextTriggerTime, showPendingIntent)
+        alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
+
+        Log.d(TAG, "Rescheduled repeating alarm id=$id for next occurrence in ${intervalMillis / 1000}s")
     }
 
     private fun emitActiveAlarmId(id: String?) {
