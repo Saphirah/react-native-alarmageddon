@@ -316,11 +316,17 @@ class AlarmReceiver : BroadcastReceiver() {
         val title = originalIntent.getStringExtra("title") ?: "Alarm"
         val body = originalIntent.getStringExtra("body") ?: ""
         val minutes = originalIntent.getIntExtra("snoozeMinutes", SNOOZE_MINUTES)
+        val repeatFrequency = originalIntent.getIntExtra("repeatFrequency", -1)
+        val snoozeEnabled = originalIntent.getBooleanExtra("snoozeEnabled", true)
+        val snoozeInterval = originalIntent.getIntExtra("snoozeInterval", SNOOZE_MINUTES)
 
         val snoozeIntent = Intent(context, AlarmReceiver::class.java).apply {
             putExtra("id", id)
             putExtra("title", title)
             putExtra("body", body)
+            putExtra("repeatFrequency", repeatFrequency)
+            putExtra("snoozeEnabled", snoozeEnabled)
+            putExtra("snoozeInterval", snoozeInterval)
         }
 
         val pendingIntent = PendingIntent.getBroadcast(
@@ -338,6 +344,19 @@ class AlarmReceiver : BroadcastReceiver() {
         Log.d(TAG, "Alarm $id snoozed for $minutes minutes")
     }
 
+    /**
+     * Reschedule a repeating alarm for its next occurrence.
+     * This method is called automatically after a repeating alarm triggers to schedule
+     * the next occurrence at the exact interval (hourly, daily, or weekly).
+     * 
+     * @param context The Android context
+     * @param id The unique alarm identifier
+     * @param title The alarm notification title
+     * @param body The alarm notification body
+     * @param snoozeEnabled Whether snoozing is enabled for this alarm
+     * @param snoozeInterval The snooze interval in minutes
+     * @param repeatFrequency The repeat frequency (0=hourly, 1=daily, 2=weekly)
+     */
     private fun rescheduleRepeatingAlarm(context: Context, id: String, title: String, body: String, snoozeEnabled: Boolean, snoozeInterval: Int, repeatFrequency: Int) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val intervalMillis = AlarmModule.getRepeatIntervalMillis(repeatFrequency)

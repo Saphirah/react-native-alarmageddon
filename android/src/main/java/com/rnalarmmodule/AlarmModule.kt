@@ -39,7 +39,13 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
         }
 
         /**
-         * Create a PendingIntent for the alarm clock show intent
+         * Create a PendingIntent for the alarm clock show intent.
+         * This intent is used when the user taps on the alarm notification in the status bar.
+         * 
+         * @param context The Android context
+         * @param id The unique alarm identifier
+         * @param alarmPendingIntent The fallback PendingIntent if launch intent cannot be created
+         * @return A PendingIntent that will launch the app, or the fallback if unavailable
          */
         fun createShowIntent(context: Context, id: String, alarmPendingIntent: PendingIntent): PendingIntent {
             val showIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
@@ -48,9 +54,18 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
             }
             
             return if (showIntent != null) {
+                // Use absolute value of hashCode and add offset to avoid overflow
+                // If the result would overflow, we use just the absolute value
+                val baseCode = kotlin.math.abs(id.hashCode())
+                val requestCode = if (baseCode > Int.MAX_VALUE - SHOW_INTENT_REQUEST_CODE_OFFSET) {
+                    baseCode
+                } else {
+                    baseCode + SHOW_INTENT_REQUEST_CODE_OFFSET
+                }
+                
                 PendingIntent.getActivity(
                     context,
-                    id.hashCode() + SHOW_INTENT_REQUEST_CODE_OFFSET,
+                    requestCode,
                     showIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
