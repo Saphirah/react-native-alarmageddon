@@ -5,10 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.app.AlarmManager
 import android.app.PendingIntent
-import android.os.Build
 import org.json.JSONObject
-import java.text.SimpleDateFormat
-import java.util.Locale
 import android.util.Log
 
 class BootReceiver : BroadcastReceiver() {
@@ -16,7 +13,6 @@ class BootReceiver : BroadcastReceiver() {
     companion object {
         private const val TAG = "BootReceiver"
         private const val PREFS = "rn_alarm_module_alarms"
-        private const val DATE_PATTERN = "yyyy-MM-dd'T'HH:mm:ss"
     }
 
     override fun onReceive(context: Context, intent: Intent?) {
@@ -39,7 +35,6 @@ class BootReceiver : BroadcastReceiver() {
             return
         }
 
-        val sdf = SimpleDateFormat(DATE_PATTERN, Locale.getDefault())
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val now = System.currentTimeMillis()
 
@@ -59,12 +54,9 @@ class BootReceiver : BroadcastReceiver() {
             val snoozeEnabled = obj.optBoolean("snoozeEnabled", true)
             val snoozeInterval = obj.optInt("snoozeInterval", 5)
             val repeatFrequency = obj.optInt("repeatFrequency", -1)
+            val ringtone = if (obj.has("ringtone")) obj.optString("ringtone") else null
 
-            val date = try {
-                sdf.parse(datetimeISO)
-            } catch (_: Exception) {
-                null
-            } ?: continue
+            val date = AlarmModule.parseDateISO(datetimeISO) ?: continue
             
             val triggerAt = date.time
             
@@ -90,6 +82,7 @@ class BootReceiver : BroadcastReceiver() {
                 putExtra("snoozeEnabled", snoozeEnabled)
                 putExtra("snoozeInterval", snoozeInterval)
                 putExtra("repeatFrequency", repeatFrequency)
+                if (ringtone != null) putExtra("ringtone", ringtone)
             }
 
             val pendingIntent = PendingIntent.getBroadcast(

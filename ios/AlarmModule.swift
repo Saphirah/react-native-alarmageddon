@@ -51,6 +51,7 @@ class AlarmModule: RCTEventEmitter {
         let snoozeEnabled = alarm["snoozeEnabled"] as? Bool ?? true
         let snoozeInterval = alarm["snoozeInterval"] as? Int ?? 5
         let repeatFrequency = alarm["repeatFrequency"] as? Int ?? -1
+        let ringtone = alarm["ringtone"] as? String
         
         // Parse ISO date
         let dateFormatter = ISO8601DateFormatter()
@@ -82,7 +83,11 @@ class AlarmModule: RCTEventEmitter {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = UNNotificationSound.default
+        if let ringtone = ringtone, !ringtone.isEmpty {
+            content.sound = UNNotificationSound(named: UNNotificationSoundName(ringtone))
+        } else {
+            content.sound = UNNotificationSound.default
+        }
         content.categoryIdentifier = snoozeEnabled ? "ALARM_CATEGORY_WITH_SNOOZE" : "ALARM_CATEGORY"
         content.userInfo = [
             "alarmId": id,
@@ -129,7 +134,7 @@ class AlarmModule: RCTEventEmitter {
             }
             
             // Save alarm to UserDefaults
-            self.saveAlarm(id: id, datetimeISO: datetimeISO, title: title, body: body, snoozeEnabled: snoozeEnabled, snoozeInterval: snoozeInterval, repeatFrequency: repeatFrequency)
+            self.saveAlarm(id: id, datetimeISO: datetimeISO, title: title, body: body, snoozeEnabled: snoozeEnabled, snoozeInterval: snoozeInterval, repeatFrequency: repeatFrequency, ringtone: ringtone)
             resolve(nil)
         }
     }
@@ -235,11 +240,16 @@ class AlarmModule: RCTEventEmitter {
             let snoozeEnabled = (alarm["snoozeEnabled"] as NSString?)?.boolValue ?? true
             let snoozeInterval = Int(alarm["snoozeInterval"] ?? "5") ?? 5
             let repeatFrequency = Int(alarm["repeatFrequency"] ?? "-1") ?? -1
+            let ringtone = alarm["ringtone"]
             
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
-            content.sound = UNNotificationSound.default
+            if let ringtone = ringtone, !ringtone.isEmpty {
+                content.sound = UNNotificationSound(named: UNNotificationSoundName(ringtone))
+            } else {
+                content.sound = UNNotificationSound.default
+            }
             content.categoryIdentifier = snoozeEnabled ? "ALARM_CATEGORY_WITH_SNOOZE" : "ALARM_CATEGORY"
             content.userInfo = [
                 "alarmId": id,
@@ -276,9 +286,9 @@ class AlarmModule: RCTEventEmitter {
     
     // MARK: - Storage Helpers
     
-    private func saveAlarm(id: String, datetimeISO: String, title: String, body: String, snoozeEnabled: Bool = true, snoozeInterval: Int = 5, repeatFrequency: Int = -1) {
+    private func saveAlarm(id: String, datetimeISO: String, title: String, body: String, snoozeEnabled: Bool = true, snoozeInterval: Int = 5, repeatFrequency: Int = -1, ringtone: String? = nil) {
         var alarms = getAlarmsDict()
-        alarms[id] = [
+        var alarmData: [String: String] = [
             "id": id,
             "datetimeISO": datetimeISO,
             "title": title,
@@ -287,6 +297,10 @@ class AlarmModule: RCTEventEmitter {
             "snoozeInterval": String(snoozeInterval),
             "repeatFrequency": String(repeatFrequency)
         ]
+        if let ringtone = ringtone {
+            alarmData["ringtone"] = ringtone
+        }
+        alarms[id] = alarmData
         UserDefaults.standard.set(alarms, forKey: AlarmModule.PREFS_KEY)
     }
     

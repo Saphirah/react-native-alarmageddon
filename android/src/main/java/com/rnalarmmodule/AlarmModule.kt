@@ -18,13 +18,43 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
     companion object {
         private const val TAG = "AlarmModule"
         private const val PREFS = "rn_alarm_module_alarms"
-        private const val DATE_PATTERN = "yyyy-MM-dd'T'HH:mm:ss"
         private const val SHOW_INTENT_REQUEST_CODE_OFFSET = 999
 
         // Weak reference to avoid memory leaks - used by AlarmReceiver to emit events
         private var reactContextRef: WeakReference<ReactApplicationContext>? = null
 
         fun getReactContext(): ReactApplicationContext? = reactContextRef?.get()
+
+        /**
+         * Parse an ISO 8601 date string, handling timezone offsets and fractional seconds.
+         * Tries timezone-aware formats first (e.g. "2025-01-15T08:30:00.000Z",
+         * "2025-01-15T08:30:00+05:30"), then falls back to local-time formats.
+         */
+        fun parseDateISO(datetimeISO: String): Date? {
+            // Formats with timezone: handles 'Z' and offset like '+05:30'
+            val tzFormats = listOf(
+                "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+                "yyyy-MM-dd'T'HH:mm:ssXXX"
+            )
+            for (fmt in tzFormats) {
+                try {
+                    val result = SimpleDateFormat(fmt, Locale.US).parse(datetimeISO)
+                    if (result != null) return result
+                } catch (_: Exception) {}
+            }
+            // Fallback: no timezone, treat as local device time
+            val localFormats = listOf(
+                "yyyy-MM-dd'T'HH:mm:ss.SSS",
+                "yyyy-MM-dd'T'HH:mm:ss"
+            )
+            for (fmt in localFormats) {
+                try {
+                    val result = SimpleDateFormat(fmt, Locale.US).parse(datetimeISO)
+                    if (result != null) return result
+                } catch (_: Exception) {}
+            }
+            return null
+        }
 
         /**
          * Get interval in milliseconds for repeat frequency
@@ -119,6 +149,7 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
             val snoozeEnabled = alarm.optBoolean("snoozeEnabled", true)
             val snoozeInterval = alarm.optInt("snoozeInterval", 5)
             val repeatFrequency = alarm.optInt("repeatFrequency", -1)
+            val ringtone = if (alarm.has("ringtone")) alarm.optString("ringtone") else null
 
             val intent = Intent(reactApplicationContext, AlarmReceiver::class.java).apply {
                 action = AlarmReceiver.ACTION_SNOOZE
@@ -129,6 +160,7 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
                 putExtra("snoozeEnabled", snoozeEnabled)
                 putExtra("snoozeInterval", snoozeInterval)
                 putExtra("repeatFrequency", repeatFrequency)
+                if (ringtone != null) putExtra("ringtone", ringtone)
             }
             reactApplicationContext.sendBroadcast(intent)
             promise.resolve(null)
@@ -158,9 +190,9 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
             val snoozeEnabled = if (alarm.hasKey("snoozeEnabled")) alarm.getBoolean("snoozeEnabled") else true
             val snoozeInterval = if (alarm.hasKey("snoozeInterval")) alarm.getInt("snoozeInterval") else 5
             val repeatFrequency = if (alarm.hasKey("repeatFrequency")) alarm.getInt("repeatFrequency") else -1
+            val ringtone = if (alarm.hasKey("ringtone")) alarm.getString("ringtone") else null
 
-            val sdf = SimpleDateFormat(DATE_PATTERN, Locale.getDefault())
-            val date = sdf.parse(datetimeISO) ?: throw Exception("Invalid date format")
+            val date = parseDateISO(datetimeISO) ?: throw Exception("Invalid date format: $datetimeISO")
             val triggerAt = date.time
 
             val now = System.currentTimeMillis()
@@ -176,6 +208,7 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
                 putExtra("snoozeEnabled", snoozeEnabled)
                 putExtra("snoozeInterval", snoozeInterval)
                 putExtra("repeatFrequency", repeatFrequency)
+                if (ringtone != null) putExtra("ringtone", ringtone)
             }
 
             val pendingIntent = PendingIntent.getBroadcast(
@@ -191,7 +224,7 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
             val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerAt, showPendingIntent)
             alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
 
-            saveAlarm(id, datetimeISO, title, body, snoozeEnabled, snoozeInterval, repeatFrequency)
+            saveAlarm(id, datetimeISO, title, body, snoozeEnabled, snoozeInterval, repeatFrequency, ringtone)
             Log.d(TAG, "Scheduled alarm id=$id at=$datetimeISO repeatFrequency=$repeatFrequency")
             promise.resolve(null)
         } catch (e: Exception) {
@@ -241,6 +274,7 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
             map.putBoolean("snoozeEnabled", obj.optBoolean("snoozeEnabled", true))
             map.putInt("snoozeInterval", obj.optInt("snoozeInterval", 5))
             map.putInt("repeatFrequency", obj.optInt("repeatFrequency", -1))
+            if (obj.has("ringtone")) map.putString("ringtone", obj.optString("ringtone"))
             arr.pushMap(map)
         }
         promise.resolve(arr)
@@ -286,7 +320,7 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
         // Required for NativeEventEmitter
     }
 
-    private fun saveAlarm(id: String, datetimeISO: String, title: String, body: String, snoozeEnabled: Boolean = true, snoozeInterval: Int = 5, repeatFrequency: Int = -1) {
+    private fun saveAlarm(id: String, datetimeISO: String, title: String, body: String, snoozeEnabled: Boolean = true, snoozeInterval: Int = 5, repeatFrequency: Int = -1, ringtone: String? = null) {
         val obj = JSONObject()
             .put("id", id)
             .put("datetimeISO", datetimeISO)
@@ -295,6 +329,7 @@ class AlarmModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
             .put("snoozeEnabled", snoozeEnabled)
             .put("snoozeInterval", snoozeInterval)
             .put("repeatFrequency", repeatFrequency)
+        if (ringtone != null) obj.put("ringtone", ringtone)
         val prefs = reactApplicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs.edit().putString(id, obj.toString()).apply()
     }

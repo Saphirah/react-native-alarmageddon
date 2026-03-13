@@ -21,7 +21,7 @@ export enum RepeatFrequency {
 export type AlarmParams = {
   /** Unique identifier for the alarm */
   id: string;
-  /** ISO 8601 timestamp for when the alarm should trigger (e.g., "2025-11-10T08:30:00") */
+  /** ISO 8601 timestamp for when the alarm should trigger (e.g., "2025-11-10T08:30:00.000Z") */
   datetimeISO: string;
   /** Title to display in the notification */
   title?: string;
@@ -33,6 +33,14 @@ export type AlarmParams = {
   snoozeInterval?: number;
   /** Repeat frequency for recurring alarms (default: RepeatFrequency.NONE) */
   repeatFrequency?: RepeatFrequency;
+  /**
+   * Custom ringtone to play when the alarm fires.
+   * On Android: a raw resource name (e.g. "my_alarm") bundled in res/raw/, or a full URI
+   * string (e.g. "android.resource://com.myapp/raw/my_alarm" or a content:// URI).
+   * On iOS: the filename of a sound file bundled in the app (e.g. "my_alarm.wav").
+   * Omit or leave undefined to use the default alarm sound.
+   */
+  ringtone?: string;
 };
 
 /**
