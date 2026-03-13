@@ -65,18 +65,19 @@ class AlarmReceiver : BroadcastReceiver() {
         val snoozeEnabled = intent.getBooleanExtra("snoozeEnabled", true)
         val snoozeInterval = intent.getIntExtra("snoozeInterval", SNOOZE_MINUTES)
         val repeatFrequency = intent.getIntExtra("repeatFrequency", -1)
+        val ringtone = intent.getStringExtra("ringtone")
         activeAlarmId = id
 
         emitActiveAlarmId(activeAlarmId)
 
         acquireWakeLock(context)
         setupAudio(context)
-        playAlarm(context, id)
-        showNotificationWithActions(context, id, title, body, snoozeEnabled, snoozeInterval)
+        playAlarm(context, id, ringtone)
+        showNotificationWithActions(context, id, title, body, snoozeEnabled, snoozeInterval, ringtone)
         
         // Auto-reschedule repeating alarms
         if (repeatFrequency >= 0) {
-            rescheduleRepeatingAlarm(context, id, title, body, snoozeEnabled, snoozeInterval, repeatFrequency)
+            rescheduleRepeatingAlarm(context, id, title, body, snoozeEnabled, snoozeInterval, repeatFrequency, ringtone)
         }
     }
 
@@ -132,7 +133,7 @@ class AlarmReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun playAlarm(context: Context, id: String) {
+    private fun playAlarm(context: Context, id: String, ringtone: String? = null) {
         player?.let {
             try {
                 if (it.isPlaying) it.stop()
@@ -143,20 +144,37 @@ class AlarmReceiver : BroadcastReceiver() {
 
         player = MediaPlayer().apply {
             try {
-                // Try to use custom alarm sound from host app's res/raw folder
-                val resId = context.resources.getIdentifier(RAW_RES, "raw", context.packageName)
-                if (resId != 0) {
-                    setDataSource(
-                        context,
-                        android.net.Uri.parse("android.resource://${context.packageName}/raw/$RAW_RES")
-                    )
-                } else {
-                    // Fallback to default alarm sound
-                    val alarmUri = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM)
-                        ?: android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
-                    setDataSource(context, alarmUri)
+                val soundUri: android.net.Uri? = when {
+                    // Explicit ringtone URI or raw resource name provided by the caller
+                    !ringtone.isNullOrBlank() -> {
+                        if (ringtone.contains("://")) {
+                            // Already a full URI (e.g. "android.resource://...", "content://...")
+                            android.net.Uri.parse(ringtone)
+                        } else {
+                            // Treat as a raw resource name in the host app
+                            val resId = context.resources.getIdentifier(ringtone, "raw", context.packageName)
+                            if (resId != 0) {
+                                android.net.Uri.parse("android.resource://${context.packageName}/raw/$ringtone")
+                            } else {
+                                Log.w(TAG, "Ringtone raw resource '$ringtone' not found; falling back to default")
+                                null
+                            }
+                        }
+                    }
+                    else -> null
                 }
-                
+
+                val resolvedUri = soundUri
+                    // No explicit ringtone: try the legacy 'alarm_default' raw resource
+                    ?: run {
+                        val resId = context.resources.getIdentifier(RAW_RES, "raw", context.packageName)
+                        if (resId != 0) android.net.Uri.parse("android.resource://${context.packageName}/raw/$RAW_RES") else null
+                    }
+                    // Last resort: system alarm / notification tone
+                    ?: (android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM)
+                        ?: android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION))
+
+                setDataSource(context, resolvedUri)
                 setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_ALARM)
@@ -189,7 +207,7 @@ class AlarmReceiver : BroadcastReceiver() {
         }.start()
     }
 
-    private fun showNotificationWithActions(context: Context, id: String, title: String, body: String, snoozeEnabled: Boolean = true, snoozeInterval: Int = SNOOZE_MINUTES) {
+    private fun showNotificationWithActions(context: Context, id: String, title: String, body: String, snoozeEnabled: Boolean = true, snoozeInterval: Int = SNOOZE_MINUTES, ringtone: String? = null) {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -220,6 +238,7 @@ class AlarmReceiver : BroadcastReceiver() {
                 putExtra("snoozeMinutes", snoozeInterval)
                 putExtra("snoozeEnabled", snoozeEnabled)
                 putExtra("snoozeInterval", snoozeInterval)
+                if (ringtone != null) putExtra("ringtone", ringtone)
             }
             PendingIntent.getBroadcast(
                 context, id.hashCode() + 2, snoozeIntent,
@@ -319,6 +338,7 @@ class AlarmReceiver : BroadcastReceiver() {
         val repeatFrequency = originalIntent.getIntExtra("repeatFrequency", -1)
         val snoozeEnabled = originalIntent.getBooleanExtra("snoozeEnabled", true)
         val snoozeInterval = originalIntent.getIntExtra("snoozeInterval", SNOOZE_MINUTES)
+        val ringtone = originalIntent.getStringExtra("ringtone")
 
         val snoozeIntent = Intent(context, AlarmReceiver::class.java).apply {
             putExtra("id", id)
@@ -327,6 +347,7 @@ class AlarmReceiver : BroadcastReceiver() {
             putExtra("repeatFrequency", repeatFrequency)
             putExtra("snoozeEnabled", snoozeEnabled)
             putExtra("snoozeInterval", snoozeInterval)
+            if (ringtone != null) putExtra("ringtone", ringtone)
         }
 
         val pendingIntent = PendingIntent.getBroadcast(
@@ -357,7 +378,7 @@ class AlarmReceiver : BroadcastReceiver() {
      * @param snoozeInterval The snooze interval in minutes
      * @param repeatFrequency The repeat frequency (0=hourly, 1=daily, 2=weekly)
      */
-    private fun rescheduleRepeatingAlarm(context: Context, id: String, title: String, body: String, snoozeEnabled: Boolean, snoozeInterval: Int, repeatFrequency: Int) {
+    private fun rescheduleRepeatingAlarm(context: Context, id: String, title: String, body: String, snoozeEnabled: Boolean, snoozeInterval: Int, repeatFrequency: Int, ringtone: String? = null) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val intervalMillis = AlarmModule.getRepeatIntervalMillis(repeatFrequency)
         
@@ -373,6 +394,7 @@ class AlarmReceiver : BroadcastReceiver() {
             putExtra("snoozeEnabled", snoozeEnabled)
             putExtra("snoozeInterval", snoozeInterval)
             putExtra("repeatFrequency", repeatFrequency)
+            if (ringtone != null) putExtra("ringtone", ringtone)
         }
 
         val pendingIntent = PendingIntent.getBroadcast(
